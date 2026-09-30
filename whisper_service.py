@@ -1,19 +1,22 @@
 """
 Prompt Whisper - client side of the out-of-process Whisper worker.
 
-This is what the tray app talks to instead of holding a WhisperModel. It keeps
-the heavy process alive only for as long as it is actually useful:
+This is what the tray app talks to instead of holding a WhisperModel. By
+default (keep_loaded) the worker is started with the app and kept running, so
+the model is always ready. Without keep_loaded it lives only as long as it is
+actually useful:
 
     hotkey pressed   -> prewarm()    spawn the worker, load the model while
-                                     you are still talking (so the ~5 s load
-                                     costs you nothing)
+                                     you are still talking
     recording stops  -> transcribe() send the job, get the text back
     done             -> release()    arm an idle timer; when it fires the
-                                     worker exits and gives back ~900 MB of
-                                     RAM and ~2.2 GB of VRAM
+                                     worker exits and gives back its RAM
+                                     and VRAM
 
 Consecutive recordings inside the idle window reuse the warm worker, so a
-dictation burst pays the model load exactly once.
+dictation burst pays the model load exactly once. In keep_loaded mode,
+release() instead makes sure the worker is still there (and restarts it if a
+failure took it down).
 
 If the worker cannot be spawned for any reason, everything transparently
 falls back to loading Whisper in this process — the old behaviour. Speech to
@@ -103,6 +106,7 @@ class WhisperService:
                  app_dir: str,
                  idle_timeout: float = 90.0,
                  use_worker: bool = True,
+                 keep_loaded: bool = False,
                  log: Callable[[str], None] = print):
         self.model_name = model_name
         self.app_dir = app_dir
@@ -110,6 +114,8 @@ class WhisperService:
         # 0 disables the worker entirely (model stays in this process).
         self.idle_timeout = idle_timeout
         self.use_worker = use_worker and idle_timeout >= 0
+        # Never release the worker; the app prewarms it at startup.
+        self.keep_loaded = keep_loaded and self.use_worker
         self.log = log
 
         self._lock = threading.RLock()
@@ -141,8 +147,11 @@ class WhisperService:
 
     def release(self):
         """Recording finished — start counting down to shutting the worker
-        (and its ~900 MB / 2.2 GB VRAM) down."""
+        (and its RAM and VRAM) down. In keep_loaded mode, keep it instead."""
         if not self.use_worker:
+            return
+        if self.keep_loaded:
+            self.prewarm()   # no-op while it runs; brings it back after a failure
             return
         with self._lock:
             self._cancel_idle_timer()

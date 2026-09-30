@@ -31,15 +31,20 @@ WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "").strip() or None
 # terms). They are fed to Whisper as a spelling hint.
 WHISPER_VOCAB = [w.strip() for w in os.getenv("WHISPER_VOCAB", "").split(",") if w.strip()]
 
-# How long the model may sit idle before it is released, in seconds.
+# Keep the model loaded all the time (default). It loads in a worker process
+# when the app starts and stays there, so every dictation is transcribed right
+# away. While idle it holds its memory: large-v3-turbo takes about 0.7 GB of
+# RAM plus 2.2 GB of VRAM on an NVIDIA GPU, or about 0.9 GB of RAM on the CPU.
 #
-# The model does not live in the tray app: it runs in a worker process that is
-# spawned when you press the hotkey (loading while you talk, so it costs no
-# waiting) and shut down again once you have been idle this long.
-#
+# 0 loads the model only when you press the hotkey (while you talk) and
+# releases it after WHISPER_IDLE_TIMEOUT seconds without a dictation. That
+# suits PCs short on memory, at the cost of a wait when the model has to load.
+WHISPER_KEEP_LOADED = os.getenv("WHISPER_KEEP_LOADED", "1").strip().lower() not in ("0", "false", "no", "off")
+
+# With WHISPER_KEEP_LOADED=0: seconds the model may sit idle before it is released.
 #   90  (default) keeps the model warm through a burst of dictations
 #   0   releases it the moment each transcription finishes
-#   -1  loads Whisper into the app process and keeps it there
+#   -1  loads Whisper into the app process instead of a worker
 WHISPER_IDLE_TIMEOUT = float(os.getenv("WHISPER_IDLE_TIMEOUT", "90"))
 
 # The hotkey is fixed: Ctrl+Space starts and stops a dictation, Esc cancels.

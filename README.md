@@ -11,8 +11,9 @@ in any text field: your editor, a terminal, a chat box, a prompt to a coding age
 - **Nothing is kept.** The audio is written to a temp file only until it has been transcribed, then
   deleted. The text goes to your clipboard and nowhere else. There is no history file and no log of what
   you said.
-- **Light when idle.** The model loads in a separate worker process while you are still talking, and is
-  released after 90 seconds without a dictation. Between dictations the app uses about 50 MB of RAM.
+- **Always ready.** The model loads in a separate worker process when the app starts and stays loaded, so
+  every dictation is transcribed right away. On a PC short on memory, `WHISPER_KEEP_LOADED=0` loads it only
+  while you dictate and releases it after 90 idle seconds, leaving about 50 MB in use between dictations.
 
 ## Install: paste one prompt into your agent
 
@@ -22,9 +23,9 @@ Open Claude Code, Codex, Cursor or Grok and paste:
 Install Prompt Whisper for me: clone https://github.com/jaydenbruck/prompt-whisper and follow AGENT_SETUP.md in it.
 ```
 
-The agent asks you three short questions (your language, words to spell right, start at login), checks
-the prerequisites, installs everything, downloads the model, proves transcription works, and starts the
-app. [AGENT_SETUP.md](AGENT_SETUP.md) is what it follows.
+The agent asks you three short questions (your language, words to spell right, start at login), looks
+at your hardware to pick the right model, installs everything, downloads the model, proves transcription
+works, and starts the app. [AGENT_SETUP.md](AGENT_SETUP.md) is what it follows.
 
 ## Controls
 
@@ -85,13 +86,16 @@ venv/bin/python download_model.py small        (Windows: venv\Scripts\python dow
 
 and set `WHISPER_MODEL=small` in `.env`.
 
-| model | download | notes |
-|---|---|---|
-| `large-v3-turbo` | 1.6 GB | default; very accurate; fast on an NVIDIA GPU, slower on a CPU |
-| `large-v3` | 3 GB | most accurate, slower |
-| `medium` | 1.5 GB | |
-| `small` | 500 MB | good choice for CPU-only PCs and Intel Macs |
-| `base` / `tiny` | 150 / 75 MB | fastest, least accurate |
+| model | download | memory while loaded | notes |
+|---|---|---|---|
+| `large-v3-turbo` | 1.6 GB | 0.7 GB RAM + 2.2 GB VRAM on a GPU; 0.9 GB RAM on a CPU | default; very accurate; about a second per dictation on an NVIDIA GPU |
+| `large-v3` | 3 GB | more | most accurate, slower |
+| `medium` | 1.5 GB | | |
+| `small` | 500 MB | 0.4 GB RAM | good choice for CPUs without an NVIDIA GPU |
+| `base` / `tiny` | 150 / 75 MB | 0.2 GB RAM | fastest, least accurate |
+
+Memory figures are measured on Windows with the app's settings. `selftest.py` prints how long your own
+machine takes to load and transcribe, which is the best guide to picking a size.
 
 `WHISPER_MODEL` also accepts a path to a local faster-whisper model folder.
 
@@ -104,7 +108,8 @@ Copy `.env.example` to `.env` and uncomment what you want to change:
 | `WHISPER_MODEL` | `large-v3-turbo` | model size or local model folder |
 | `WHISPER_LANGUAGE` | auto-detect | force a language, e.g. `en` or `de` |
 | `WHISPER_VOCAB` | empty | comma-separated words Whisper keeps misspelling (names, product terms) |
-| `WHISPER_IDLE_TIMEOUT` | `90` | seconds the model stays loaded after a dictation; `0` releases at once, `-1` keeps it loaded in the app |
+| `WHISPER_KEEP_LOADED` | `1` | keep the model loaded from app start (instant transcription); `0` loads it only while dictating |
+| `WHISPER_IDLE_TIMEOUT` | `90` | with `WHISPER_KEEP_LOADED=0`: seconds the model stays loaded after a dictation |
 | `MODELS_DIR` | `models/` | where models are stored |
 | `SAMPLE_RATE` | `16000` | microphone sample rate |
 
@@ -120,7 +125,7 @@ The rules are in `text_corrections.py`.
 ```
 main.py              tray icon, Ctrl+Space hotkey, record -> transcribe -> clipboard -> paste
 audio_recorder.py    microphone capture, streamed to a temp WAV
-whisper_service.py   starts, times out and restarts the Whisper worker; falls back to CPU if the GPU fails
+whisper_service.py   starts, keeps or releases, and restarts the Whisper worker; falls back to CPU if the GPU fails
 whisper_worker.py    separate process that owns the model and answers over a JSON pipe
 whisper_stt.py       faster-whisper settings (VAD, anti-hallucination thresholds)
 text_corrections.py  cleanup of repetition and silence hallucinations

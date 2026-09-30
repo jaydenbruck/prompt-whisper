@@ -46,7 +46,7 @@ from PIL import Image, ImageDraw
 from pynput import keyboard
 
 from audio_recorder import AudioRecorder
-from config import HOTKEY, SAMPLE_RATE, WHISPER_IDLE_TIMEOUT, WHISPER_MODEL, APP_DIR
+from config import HOTKEY, SAMPLE_RATE, WHISPER_IDLE_TIMEOUT, WHISPER_KEEP_LOADED, WHISPER_MODEL, APP_DIR
 from paste import paste_from_clipboard
 from ui import RecordingWindow
 from whisper_service import WhisperService
@@ -82,6 +82,7 @@ class PromptWhisperApp:
             app_dir=APP_DIR,
             idle_timeout=WHISPER_IDLE_TIMEOUT,
             use_worker=WHISPER_IDLE_TIMEOUT >= 0,
+            keep_loaded=WHISPER_KEEP_LOADED,
         )
         self.recording_window: Optional[RecordingWindow] = None
         self.is_processing = False
@@ -97,6 +98,9 @@ class PromptWhisperApp:
         print(f"Prompt Whisper ready. {HOTKEY} to start/stop dictation, Esc to cancel.")
 
     def start(self):
+        # Keep-loaded mode: start loading the model now, so the first dictation does not wait for it.
+        if self.whisper.keep_loaded:
+            self.whisper.prewarm()
         self._root = ctk.CTk()
         self._root.withdraw()
         if IS_MAC:

@@ -28,46 +28,94 @@ git clone https://github.com/jaydenbruck/prompt-whisper.git ~/prompt-whisper
 
 **Windows**
 - Python 3.10 or newer: `py -3 --version`. If missing, and the user agreed: `winget install -e --id Python.Python.3.12`.
-- NVIDIA GPU? Run `nvidia-smi`. If it works, transcription runs on the GPU and the default model is right.
-  If not, it runs on the CPU: use the `small` model (step 3).
 
 **macOS** (the Mac version has not been tested yet; tell the user so)
 - Homebrew: `brew --version`. If missing, send the user to https://brew.sh; it needs their password.
 - Python 3.10 or newer with Tk: `python3 -c "import sys, tkinter; print(sys.version)"`. If that fails:
   `brew install python@3.12 python-tk@3.12`.
-- Apple Silicon (`uname -m` prints `arm64`): keep the default model. Intel Mac: use `small` (step 3).
 
-## 3. Write `.env`
+## 3. Pick the model for this computer
 
-Copy `.env.example` to `.env` in the install folder and set what applies:
+Prompt Whisper runs Whisper on the user's own hardware, so the right model size depends on the machine.
+Look at it first:
 
 ```
-WHISPER_MODEL=small                    # only for CPU-only Windows PCs and Intel Macs
-WHISPER_LANGUAGE=en                    # only if the user always speaks one language
-WHISPER_VOCAB=Name1, Product2, Term3   # the user's answer to question 2
+Windows:  nvidia-smi --query-gpu=name,memory.total --format=csv,noheader     (fails = no NVIDIA GPU)
+          powershell -NoProfile -Command "[math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory/1GB); (Get-CimInstance Win32_Processor).Name"
+macOS:    uname -m                                   (arm64 = Apple Silicon)
+          sysctl -n hw.memsize machdep.cpu.brand_string
 ```
 
-## 4. Install
+Then choose from this table:
+
+| the computer has | `WHISPER_MODEL` | `WHISPER_KEEP_LOADED` |
+|---|---|---|
+| NVIDIA GPU with 4 GB VRAM or more | `large-v3-turbo` | `1` |
+| NVIDIA GPU with less than 4 GB VRAM | `small` | `1` |
+| Apple Silicon Mac with 16 GB RAM or more | `large-v3-turbo` | `1` |
+| Apple Silicon Mac with 8 GB RAM | `small` | `1` |
+| no NVIDIA GPU (or an Intel Mac), 16 GB RAM or more | `small` | `1` |
+| no NVIDIA GPU (or an Intel Mac), 8 GB RAM | `base` | `1` |
+| less than 8 GB RAM | `base` | `0` |
+
+What the settings mean:
+
+- **Model size** trades accuracy for speed. Without an NVIDIA GPU, Whisper runs on the CPU, where each
+  size step is several times slower. faster-whisper has no Apple GPU backend, so Macs use the CPU too.
+- **`WHISPER_KEEP_LOADED=1`** (the default) loads the model when the app starts and keeps it, so every
+  dictation is transcribed at once. The model's memory stays in use: large-v3-turbo holds about 0.7 GB of
+  RAM plus 2.2 GB of VRAM on a GPU, or 0.9 GB of RAM on a CPU; small about 0.4 GB; base about 0.2 GB.
+  **`0`** loads the model only while the user dictates and frees it after 90 idle seconds. That saves
+  memory, but the first dictation after a pause waits for the model to load (up to 10-20 seconds).
+  Use `0` only on machines that are short on memory.
+- If the user said accuracy matters more to them than speed, you may go one size up. If they said the
+  computer is usually busy with heavy work, you may go one size down.
+
+Tell the user in one line which model you picked and why.
+
+## 4. Write `.env`
+
+Copy `.env.example` to `.env` in the install folder and set what applies (python-dotenv reads `KEY=value`
+lines; keep comments on their own lines):
+
+```
+WHISPER_MODEL=small
+WHISPER_KEEP_LOADED=1
+WHISPER_LANGUAGE=en
+WHISPER_VOCAB=Name1, Product2, Term3
+```
+
+Leave out `WHISPER_LANGUAGE` if the user speaks more than one language, and `WHISPER_VOCAB` if they named
+no terms.
+
+## 5. Install
 
 Run the setup script from the install folder. It creates `venv`, installs the dependencies, and downloads
-the Whisper model (large-v3-turbo is about 1.6 GB, so give this up to 15 minutes).
+the model named in `.env` (large-v3-turbo is about 1.6 GB, so give this up to 15 minutes).
 
 - Windows: `setup.bat`
 - macOS: `sh setup.sh` (installs PortAudio with Homebrew if needed)
 
-## 5. Check transcription
+## 6. Check transcription and speed
 
 ```
 Windows:  venv\Scripts\python selftest.py
 macOS:    venv/bin/python selftest.py
 ```
 
-It speaks a test sentence with the computer's built-in voice ("Prompt Whisper is working. This sentence
-was spoken by the computer.") and transcribes it. Expect a `TEXT:` line close to that sentence; the robot
-voice and smaller models garble a word or two, which is fine. An error or an empty result is not: fix
-that before going on.
+It speaks a test sentence (about five seconds) with the computer's built-in voice ("Prompt Whisper is
+working. This sentence was spoken by the computer.") and transcribes it. It prints a line like
+`model small on cpu: loaded in 6.1s, transcribed in 1.2s` and then `TEXT: ...`.
 
-## 6. Start at login (Windows, if the user said yes)
+- The `TEXT:` line should be close to the sentence; the robot voice and smaller models garble a word or
+  two, which is fine. An error or an empty result is not: fix it before going on.
+- If `transcribed in` is over 3 seconds, the model is too big for this computer: step one size down
+  (large-v3-turbo -> small -> base), download it with `venv/bin/python download_model.py <size>` (Windows:
+  `venv\Scripts\python`), update `.env`, and run the self-test again.
+- If it says `on cpu` but the computer has an NVIDIA GPU, CUDA did not load. It still works, just slower;
+  mention it to the user.
+
+## 7. Start at login (Windows, if the user said yes)
 
 ```powershell
 $s = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\Prompt Whisper.lnk")
@@ -79,15 +127,17 @@ $s.Save()
 
 (Adjust the paths if you installed somewhere else.)
 
-## 7. Start it
+## 8. Start it
 
 - Windows: `run.bat`
 - macOS: `sh run.sh`
 
-## 8. Tell the user
+## 9. Tell the user
 
+- Which model you picked, and whether it stays loaded.
 - Press **Ctrl+Space**, talk, press **Ctrl+Space** again: the text is pasted where the cursor is. **Esc** cancels.
-- The first dictation after a pause takes a few extra seconds while the model loads.
+- With `WHISPER_KEEP_LOADED=1` the model is loading for a few seconds right after the app starts; after
+  that every dictation is quick.
 - macOS only:
   - The first time, macOS asks to allow **Microphone**, **Accessibility** and **Input Monitoring** for the
     terminal app that started Prompt Whisper. All three are needed. If a prompt was missed: System
