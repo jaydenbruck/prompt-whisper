@@ -1,0 +1,14 @@
+customtkinter>=5.2.2
+pillow>=10.0.0
+pyaudio>=0.2.13
+numpy>=1.24.0
+faster-whisper>=1.0.0
+# PyAV 19 dropped an argument faster-whisper 1.2.1 still passes to av.open
+av>=11,<19
+python-dotenv>=1.0.0
+pyperclip>=1.8.2
+pynput>=1.8.1
+pystray>=0.19.5
+# macOS: focus handling, no Dock icon, menu-bar icon
+pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"
+pyobjc-framework-Quartz>=10.0; sys_platform == "darwin"
